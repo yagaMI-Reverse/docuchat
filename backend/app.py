@@ -29,7 +29,9 @@ from pydantic import BaseModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-app = FastAPI(title="DocuChat API", version="1.0.0")
+# Swagger UI moved to /api-docs so our own GET /docs (list documents) isn't
+# shadowed by FastAPI's built-in interactive docs route.
+app = FastAPI(title="DocuChat API", version="1.0.0", docs_url="/api-docs", redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # demo; lock to your frontend origin in production
