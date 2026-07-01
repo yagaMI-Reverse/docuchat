@@ -48,6 +48,13 @@ export async function streamChat(
   }
 }
 
+/**
+ * Wake the API on page load. Free hosts (e.g. Render) spin the service down
+ * after inactivity; pinging /health early means it's usually awake by the time
+ * the visitor sends their first question.
+ */
+export const warmup = () => fetch(`${API}/health`).catch(() => {});
+
 export const listDocs = () => fetch(`${API}/docs`).then((r) => r.json() as Promise<DocMeta[]>);
 
 export const addDoc = (title: string, text: string) =>

@@ -4,7 +4,7 @@ import {
   LayoutDashboard, RefreshCw, Loader2, ShieldCheck, CircleHelp, Sparkles,
 } from "lucide-react";
 import {
-  streamChat, listDocs, addDoc, sendFeedback, getStats, getQuestions,
+  streamChat, listDocs, addDoc, sendFeedback, getStats, getQuestions, warmup,
   type Source, type DocMeta, type Stats, type QuestionLog,
 } from "./lib/api";
 
@@ -28,6 +28,9 @@ const SUGGESTIONS = [
 
 export default function App() {
   const [tab, setTab] = useState<"chat" | "admin">("chat");
+  useEffect(() => {
+    warmup(); // wake a sleeping free-tier backend as early as possible
+  }, []);
   return (
     <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 sm:px-6">
       <header className="flex items-center justify-between py-5">
