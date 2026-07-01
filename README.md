@@ -8,9 +8,11 @@ questions, and 👍/👎 feedback.
 Built to mirror a real production support bot: **React (TypeScript) frontend + Python
 (FastAPI) backend** doing retrieval-augmented generation (RAG).
 
-🔗 **Live demo:** _frontend on GitHub Pages · API on Render_ (see Deploy)
+🔗 **Live demo:** https://yagami-reverse.github.io/docuchat/ &nbsp;·&nbsp; **API:** https://docuchat-api-odw2.onrender.com
 🖥️ **Frontend:** React 18 · TypeScript · Vite · Tailwind
 🐍 **Backend:** Python · FastAPI · scikit-learn (TF-IDF retrieval) · SSE streaming
+
+> ⏳ The API runs on a free tier that sleeps after inactivity — the **first** request may take ~30–50s to wake it, then it's fast. The app pings it on load to warm it up.
 
 ![DocuChat](./screenshot.png)
 
