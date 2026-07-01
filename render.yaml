@@ -1,0 +1,17 @@
+# One-click deploy of the DocuChat FastAPI backend on Render (free tier).
+# Render → New → Blueprint → connect this repo. Or create a Web Service manually
+# with the build/start commands below and root directory "backend".
+services:
+  - type: web
+    name: docuchat-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      # Optional — set to enable real LLM answers instead of the free extractive mode:
+      # - key: OPENAI_API_KEY
+      #   sync: false

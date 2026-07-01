@@ -1,0 +1,25 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root { color-scheme: dark; }
+  * { border-color: theme("colors.line"); }
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+    background-image: radial-gradient(60% 50% at 85% -10%, rgba(99, 102, 241, 0.12), transparent 70%);
+    background-attachment: fixed;
+  }
+  :focus-visible { outline: 2px solid theme("colors.brand.DEFAULT"); outline-offset: 2px; border-radius: 6px; }
+}
+
+@layer components {
+  .panel { @apply rounded-2xl border border-line bg-panel; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all disabled:opacity-50 disabled:pointer-events-none; }
+  .btn-brand { @apply btn bg-brand text-white hover:bg-brand/90; }
+  .btn-ghost { @apply btn border border-line bg-panel text-ink-dim hover:text-white hover:border-brand/40; }
+  .input { @apply w-full rounded-xl border border-line bg-panel px-4 py-2.5 text-sm text-white placeholder:text-ink-faint focus:border-brand/60 focus:outline-none; }
+}
