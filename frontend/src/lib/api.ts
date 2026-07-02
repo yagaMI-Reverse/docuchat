@@ -64,6 +64,16 @@ export const addDoc = (title: string, text: string) =>
     body: JSON.stringify({ title, text }),
   }).then((r) => r.json());
 
+/** Upload a .pdf/.txt/.md file into the knowledge base. */
+export const uploadDoc = async (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API}/docs/upload`, { method: "POST", body: form });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || `Upload failed (${res.status})`);
+  return data as { id: string; title: string; chars: number };
+};
+
 export const sendFeedback = (vote: "up" | "down") =>
   fetch(`${API}/feedback`, {
     method: "POST",

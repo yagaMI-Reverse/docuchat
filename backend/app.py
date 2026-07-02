@@ -22,7 +22,7 @@ import uuid
 from typing import List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -178,6 +178,50 @@ def del_doc(doc_id: str):
     DOCS = [d for d in DOCS if d["id"] != doc_id]
     _reindex()
     return {"ok": True}
+
+
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+ALLOWED_EXT = {".pdf", ".txt", ".md"}
+
+
+@app.post("/docs/upload")
+async def upload_doc(file: UploadFile):
+    """Add a document from an uploaded file (.pdf, .txt or .md)."""
+    name = file.filename or "upload"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(400, f"Unsupported file type '{ext}'. Use .pdf, .txt or .md")
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "File too large (max 5 MB)")
+
+    if ext == ".pdf":
+        try:
+            import io
+
+            from pypdf import PdfReader
+
+            reader = PdfReader(io.BytesIO(raw))
+            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        except Exception:
+            raise HTTPException(400, "Could not read this PDF")
+    else:
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1", errors="ignore")
+
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) < 40:
+        raise HTTPException(
+            400,
+            "No readable text found in the file (scanned/image-only PDFs need OCR, which the demo doesn't include)",
+        )
+
+    d = {"id": str(uuid.uuid4())[:8], "title": os.path.splitext(name)[0][:80], "text": text}
+    DOCS.append(d)
+    _reindex()
+    return {"id": d["id"], "title": d["title"], "chars": len(text)}
 
 
 @app.post("/chat")

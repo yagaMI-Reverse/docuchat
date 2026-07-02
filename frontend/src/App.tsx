@@ -4,7 +4,7 @@ import {
   LayoutDashboard, RefreshCw, Loader2, ShieldCheck, CircleHelp, Sparkles,
 } from "lucide-react";
 import {
-  streamChat, listDocs, addDoc, sendFeedback, getStats, getQuestions, warmup,
+  streamChat, listDocs, addDoc, uploadDoc, sendFeedback, getStats, getQuestions, warmup,
   type Source, type DocMeta, type Stats, type QuestionLog,
 } from "./lib/api";
 
@@ -202,6 +202,9 @@ function Admin() {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileMsg, setFileMsg] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = async () => {
     const [s, d, q] = await Promise.all([getStats(), listDocs(), getQuestions()]);
@@ -215,6 +218,22 @@ function Admin() {
     setSaving(true);
     try { await addDoc(title, text); setTitle(""); setText(""); await refresh(); }
     finally { setSaving(false); }
+  };
+
+  const onFile = async (f: File | undefined) => {
+    if (!f) return;
+    setFileBusy(true);
+    setFileMsg(null);
+    try {
+      const res = await uploadDoc(f);
+      setFileMsg(`Added "${res.title}" (${res.chars.toLocaleString()} chars)`);
+      await refresh();
+    } catch (err) {
+      setFileMsg(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setFileBusy(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
   };
 
   return (
@@ -236,6 +255,26 @@ function Admin() {
           <button type="submit" disabled={saving} className="btn-brand mt-3 w-full">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add document
           </button>
+
+          <div className="mt-4 border-t border-line pt-4">
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".pdf,.txt,.md"
+              className="hidden"
+              onChange={(e) => onFile(e.target.files?.[0])}
+            />
+            <button
+              type="button"
+              disabled={fileBusy}
+              onClick={() => fileInput.current?.click()}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-bg/40 px-3 py-2.5 text-sm text-ink-dim transition-colors hover:border-brand hover:text-white"
+            >
+              {fileBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-brand" />}
+              {fileBusy ? "Reading file…" : "…or upload a file (.pdf, .txt, .md)"}
+            </button>
+            {fileMsg && <p className="mt-2 text-xs text-ink-faint">{fileMsg}</p>}
+          </div>
         </form>
 
         <div className="panel p-5">
