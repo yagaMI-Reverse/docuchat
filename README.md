@@ -20,7 +20,7 @@ Built to mirror a real production support bot: **React (TypeScript) frontend + P
 
 ## ✨ What it does
 
-- **RAG over your docs** — upload documents; the bot chunks, indexes (TF-IDF cosine), retrieves the most relevant passages, and answers from them.
+- **RAG over your docs with real vector search** — documents are chunked, embedded (gte-small, 384-dim, via a Supabase Edge Function — zero API cost) and stored in **Postgres/pgvector**; retrieval is semantic cosine search, so "my parcel is late" finds the Shipping Policy even with zero shared keywords. TF-IDF remains as an automatic zero-config fallback.
 - **File upload** — drop **.pdf, .txt or .md** files straight into the knowledge base from the admin panel (PDF text extraction via pypdf); the bot answers from them immediately.
 - **Telegram interface** — the same bot, same knowledge base, in Telegram: [@docuchat_yagami_bot](https://t.me/docuchat_yagami_bot). Webhook-driven (FastAPI endpoint + Bot API), answers with source citations; every Telegram question shows up in the web admin log tagged `[tg]`.
 - **Streaming answers (SSE)** — the reply types out live, like ChatGPT, via `text/event-stream`.

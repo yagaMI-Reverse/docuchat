@@ -51,6 +51,66 @@ _vectorizer: Optional[TfidfVectorizer] = None
 _matrix = None
 MIN_SCORE = 0.06                 # below this we treat retrieval as "no answer"
 
+# --- Vector search (pgvector + Supabase gte-small embeddings) --------------- #
+# When SUPABASE_URL + SUPABASE_SECRET_KEY are set, retrieval uses real vector
+# embeddings stored in Postgres/pgvector; TF-IDF stays as an automatic fallback
+# so the demo still runs with zero configuration.
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.getenv("SUPABASE_SECRET_KEY")
+VECTOR_ON = bool(SUPABASE_URL and SUPABASE_KEY)
+MIN_VEC_SIM = 0.79               # gte-small runs "hot": unrelated ~0.75, related 0.8+
+_vector_ready = False
+
+
+def _sb_headers() -> dict:
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+def _embed(texts: List[str]) -> List[List[float]]:
+    import httpx
+
+    r = httpx.post(
+        f"{SUPABASE_URL}/functions/v1/embed",
+        json={"texts": texts},
+        headers=_sb_headers(),
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()["embeddings"]
+
+
+def _vector_sync() -> None:
+    """Re-embed all chunks into pgvector. On any failure we fall back to TF-IDF."""
+    global _vector_ready
+    if not VECTOR_ON:
+        return
+    try:
+        import httpx
+
+        vecs: List[List[float]] = []
+        for i in range(0, len(CHUNKS), 32):
+            vecs.extend(_embed([c["text"] for c in CHUNKS[i : i + 32]]))
+        rows = [
+            {"doc_id": c["doc_id"], "title": c["title"], "content": c["text"], "embedding": json.dumps(v)}
+            for c, v in zip(CHUNKS, vecs)
+        ]
+        httpx.delete(f"{SUPABASE_URL}/rest/v1/docuchat_chunks?id=gt.0", headers=_sb_headers(), timeout=30)
+        if rows:
+            r = httpx.post(
+                f"{SUPABASE_URL}/rest/v1/docuchat_chunks",
+                json=rows,
+                headers={**_sb_headers(), "Prefer": "return=minimal"},
+                timeout=60,
+            )
+            r.raise_for_status()
+        _vector_ready = True
+    except Exception:
+        _vector_ready = False
+
 
 def _chunk(text: str, size: int = 90, overlap: int = 20) -> List[str]:
     words = text.split()
@@ -75,9 +135,31 @@ def _reindex() -> None:
         _matrix = _vectorizer.fit_transform([c["text"] for c in CHUNKS])
     else:
         _vectorizer, _matrix = None, None
+    _vector_sync()
 
 
 def _retrieve(query: str, k: int = 3):
+    # Preferred path: semantic vector search over pgvector.
+    if _vector_ready:
+        try:
+            import httpx
+
+            qv = _embed([query])[0]
+            r = httpx.post(
+                f"{SUPABASE_URL}/rest/v1/rpc/match_docuchat_chunks",
+                json={"query_embedding": json.dumps(qv), "match_count": k},
+                headers=_sb_headers(),
+                timeout=30,
+            )
+            r.raise_for_status()
+            return [
+                ({"doc_id": row["doc_id"], "title": row["title"], "text": row["content"]}, float(row["similarity"]))
+                for row in r.json()
+                if row["similarity"] >= MIN_VEC_SIM
+            ]
+        except Exception:
+            pass  # network hiccup → fall back to TF-IDF below
+
     if not CHUNKS or _vectorizer is None:
         return []
     q = _vectorizer.transform([query])
@@ -154,7 +236,7 @@ class FeedbackIn(BaseModel):
 # --------------------------------------------------------------------------- #
 @app.get("/health")
 def health():
-    return {"ok": True, "docs": len(DOCS), "chunks": len(CHUNKS)}
+    return {"ok": True, "docs": len(DOCS), "chunks": len(CHUNKS), "vector_search": _vector_ready}
 
 
 @app.get("/docs")
