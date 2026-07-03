@@ -22,6 +22,7 @@ Built to mirror a real production support bot: **React (TypeScript) frontend + P
 
 - **RAG over your docs** — upload documents; the bot chunks, indexes (TF-IDF cosine), retrieves the most relevant passages, and answers from them.
 - **File upload** — drop **.pdf, .txt or .md** files straight into the knowledge base from the admin panel (PDF text extraction via pypdf); the bot answers from them immediately.
+- **Telegram interface** — the same bot, same knowledge base, in Telegram: [@docuchat_yagami_bot](https://t.me/docuchat_yagami_bot). Webhook-driven (FastAPI endpoint + Bot API), answers with source citations; every Telegram question shows up in the web admin log tagged `[tg]`.
 - **Streaming answers (SSE)** — the reply types out live, like ChatGPT, via `text/event-stream`.
 - **Source citations** — every grounded answer shows which document(s) it came from, with relevance scores.
 - **No hallucination** — if nothing relevant is found, it clearly says so instead of inventing facts.
