@@ -22,7 +22,7 @@ import uuid
 from typing import List, Optional
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -265,6 +265,81 @@ async def chat(inp: ChatIn):
         yield f"data: {json.dumps({'done': True, 'sources': sources, 'grounded': True})}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# --------------------------------------------------------------------------- #
+# Telegram interface — same RAG brain and knowledge base, chat via Telegram.
+# Set TELEGRAM_BOT_TOKEN (+ optional TELEGRAM_WEBHOOK_SECRET) and register the
+# webhook: https://api.telegram.org/bot<token>/setWebhook?url=<api>/telegram/webhook
+# --------------------------------------------------------------------------- #
+TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TG_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+
+TG_START_TEXT = (
+    "Hi! I'm DocuChat — a document-grounded support bot. I answer ONLY from my "
+    "knowledge base (a demo store: shipping, returns, accounts) and I cite my sources.\n\n"
+    "Try asking:\n"
+    "• How long does shipping take?\n"
+    "• What's your return policy?\n"
+    "• How do I reset my password?\n\n"
+    "If it's not in my documents, I'll say so instead of making something up.\n"
+    "Web version + admin panel: https://yagami-reverse.github.io/docuchat/"
+)
+
+
+async def _tg_send(chat_id: int, text: str) -> None:
+    import httpx
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        await client.post(
+            f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text[:4000]},
+        )
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(req: Request):
+    if TG_SECRET and req.headers.get("x-telegram-bot-api-secret-token") != TG_SECRET:
+        raise HTTPException(403, "Bad webhook secret")
+    if not TG_TOKEN:
+        return {"ok": True}
+
+    update = await req.json()
+    msg = update.get("message") or update.get("edited_message") or {}
+    chat_id = (msg.get("chat") or {}).get("id")
+    text = (msg.get("text") or "").strip()
+    if not chat_id or not text:
+        return {"ok": True}
+
+    if text.startswith("/start") or text.startswith("/help"):
+        await _tg_send(chat_id, TG_START_TEXT)
+        return {"ok": True}
+
+    hits = _retrieve(text)
+    record = {"id": str(uuid.uuid4())[:8], "q": f"[tg] {text}", "ts": time.time()}
+    if not hits:
+        answer = (
+            "I couldn't find anything about that in my documents. "
+            "Try asking about shipping, returns, or account topics."
+        )
+        record.update(answer=answer, sources=[], grounded=False)
+        QUESTIONS.append(record)
+        await _tg_send(chat_id, answer)
+        return {"ok": True}
+
+    context = "\n\n".join(f"[{h['title']}] {h['text']}" for h, _ in hits)
+    answer = ""
+    async for delta in _llm_stream(text, context):
+        answer += delta
+    if not answer:
+        answer = _extractive_answer(text, hits)
+
+    sources = [{"title": h["title"], "score": round(s, 3)} for h, s in hits]
+    record.update(answer=answer, sources=sources, grounded=True)
+    QUESTIONS.append(record)
+
+    await _tg_send(chat_id, f"{answer}\n\n\U0001F4C4 Sources: " + ", ".join(h["title"] for h, _ in hits))
+    return {"ok": True}
 
 
 @app.post("/feedback")
