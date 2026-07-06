@@ -58,6 +58,17 @@ npm install
 npm run dev        # http://localhost:5173/docuchat/  (talks to http://127.0.0.1:8000)
 ```
 
+## 🤖 LangGraph agent (multi-step RAG)
+
+`backend/agent.py` wraps the production retriever in an explicit **LangGraph** state graph — `plan → retrieve → assess ⇄ (rewrite loop, max 3 hops) → answer` — so thin retrievals trigger query rewrites instead of hallucinations, and answers always carry source citations. Generation uses Gemini when `GEMINI_API_KEY` is set and falls back to extractive answering keylessly.
+
+```bash
+cd backend
+pip install -r requirements-agent.txt
+python agent.py "Can I return an item after 20 days?"
+# A: You can return most items within 30 days ... Sources: Return & Refund Policy · Hops used: 1
+```
+
 ## 🧪 E2E tests (Playwright)
 
 The suite in `frontend/e2e/` runs against the **deployed app** (override with `E2E_BASE_URL`) on desktop + mobile emulation, and covers the money paths: streamed grounded answers with source citations, suggestion chips, honest refusal on out-of-KB questions, and the admin panel's knowledge base + quality stats. Global setup pre-warms the Render backend so cold starts never eat the test budget.
