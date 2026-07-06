@@ -1,0 +1,27 @@
+# Pings the Render-hosted backend so the free-tier instance never spins down.
+# Render free tier includes 750 instance-hours/month — one always-warm service
+# fits (720h). GitHub Actions minutes are unlimited on public repos, and
+# schedule granularity bottoms out around 5-10 minutes, which is exactly
+# Render's idle window.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping backend /health
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -m 90 https://docuchat-api-odw2.onrender.com/health || true)
+          echo "health -> $code"
+          # A cold start can exceed one request's patience; try once more.
+          if [ "$code" != "200" ]; then
+            sleep 20
+            code=$(curl -s -o /dev/null -w "%{http_code}" -m 90 https://docuchat-api-odw2.onrender.com/health || true)
+            echo "retry -> $code"
+          fi
