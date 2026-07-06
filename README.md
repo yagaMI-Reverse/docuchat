@@ -58,6 +58,17 @@ npm install
 npm run dev        # http://localhost:5173/docuchat/  (talks to http://127.0.0.1:8000)
 ```
 
+## 🧪 E2E tests (Playwright)
+
+The suite in `frontend/e2e/` runs against the **deployed app** (override with `E2E_BASE_URL`) on desktop + mobile emulation, and covers the money paths: streamed grounded answers with source citations, suggestion chips, honest refusal on out-of-KB questions, and the admin panel's knowledge base + quality stats. Global setup pre-warms the Render backend so cold starts never eat the test budget.
+
+```bash
+cd frontend
+npx playwright install chromium
+npm run test:e2e          # 10 checks: 5 specs × (desktop + mobile)
+npm run test:e2e:report   # open the HTML report
+```
+
 ## 📦 Deploy
 
 - **Frontend → GitHub Pages** (static). Set the repo variable `VITE_API_URL` to your deployed backend URL, then the included GitHub Actions workflow builds & publishes.
