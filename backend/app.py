@@ -14,6 +14,8 @@ built from the best-matching sentences. Either path streams and cites sources.
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -24,7 +26,7 @@ from typing import List, Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -421,6 +423,133 @@ async def telegram_webhook(req: Request):
     QUESTIONS.append(record)
 
     await _tg_send(chat_id, f"{answer}\n\n\U0001F4C4 Sources: " + ", ".join(h["title"] for h, _ in hits))
+    return {"ok": True}
+
+
+# --------------------------------------------------------------------------- #
+# WhatsApp interface (Meta Cloud API) — same RAG brain, chat via WhatsApp.
+# Env: WHATSAPP_TOKEN (access token), WHATSAPP_PHONE_ID (phone number id),
+#      WHATSAPP_VERIFY_TOKEN (any string, echoed in Meta's GET handshake),
+#      WHATSAPP_APP_SECRET (optional, enables X-Hub-Signature-256 verification).
+# Register the webhook in the Meta app dashboard: callback URL
+# <api>/whatsapp/webhook + the same verify token, subscribe to "messages".
+# --------------------------------------------------------------------------- #
+WA_TOKEN = os.getenv("WHATSAPP_TOKEN")
+WA_PHONE_ID = os.getenv("WHATSAPP_PHONE_ID")
+WA_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+WA_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "")
+WA_GRAPH_URL = "https://graph.facebook.com/v20.0"
+
+# Meta delivers at-least-once and retries on slow responses — dedupe by wamid.
+_WA_SEEN: set = set()
+_WA_SEEN_CAP = 500
+
+WA_HELP_TEXT = (
+    "Hi! I'm DocuChat — a document-grounded support bot. I answer ONLY from my "
+    "knowledge base (a demo store: shipping, returns, accounts) and I cite my sources. "
+    "Try: \"How long does shipping take?\" If it's not in my documents, I'll say so."
+)
+
+
+async def _wa_send(to: str, text: str) -> None:
+    import httpx
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        await client.post(
+            f"{WA_GRAPH_URL}/{WA_PHONE_ID}/messages",
+            headers={"Authorization": f"Bearer {WA_TOKEN}"},
+            json={
+                "messaging_product": "whatsapp",
+                "to": to,
+                "type": "text",
+                "text": {"body": text[:4000]},
+            },
+        )
+
+
+def _wa_signature_ok(raw: bytes, header: str) -> bool:
+    if not WA_APP_SECRET:
+        return True  # verification disabled until the secret is configured
+    if not header.startswith("sha256="):
+        return False
+    expected = hmac.new(WA_APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header[len("sha256="):])
+
+
+@app.get("/whatsapp/webhook")
+def whatsapp_verify(req: Request):
+    """Meta's one-time subscription handshake: echo hub.challenge back."""
+    q = req.query_params
+    if q.get("hub.mode") == "subscribe" and q.get("hub.verify_token") == WA_VERIFY_TOKEN:
+        return PlainTextResponse(q.get("hub.challenge", ""))
+    raise HTTPException(403, "Verification failed")
+
+
+@app.post("/whatsapp/webhook")
+async def whatsapp_webhook(req: Request):
+    raw = await req.body()
+    if not _wa_signature_ok(raw, req.headers.get("x-hub-signature-256", "")):
+        raise HTTPException(403, "Bad signature")
+    if not (WA_TOKEN and WA_PHONE_ID):
+        return {"ok": True}
+
+    try:
+        update = json.loads(raw)
+    except ValueError:
+        return {"ok": True}
+
+    # Payload: entry[].changes[].value.messages[] (statuses[] = delivery receipts, ignored)
+    for entry in update.get("entry", []):
+        for change in entry.get("changes", []):
+            for msg in (change.get("value") or {}).get("messages", []) or []:
+                wamid = msg.get("id", "")
+                if wamid in _WA_SEEN:
+                    continue
+                _WA_SEEN.add(wamid)
+                if len(_WA_SEEN) > _WA_SEEN_CAP:
+                    _WA_SEEN.pop()
+
+                sender = msg.get("from", "")
+                if not sender:
+                    continue
+                if msg.get("type") != "text":
+                    await _wa_send(sender, "I can only read text messages for now. " + WA_HELP_TEXT)
+                    continue
+                text = ((msg.get("text") or {}).get("body") or "").strip()
+                if not text:
+                    continue
+                if text.lower() in ("hi", "hello", "help", "start", "/start", "/help"):
+                    await _wa_send(sender, WA_HELP_TEXT)
+                    continue
+
+                hits = _retrieve(text)
+                record = {"id": str(uuid.uuid4())[:8], "q": f"[wa] {text}", "ts": time.time()}
+                if not hits:
+                    answer = (
+                        "I couldn't find anything about that in my documents. "
+                        "Try asking about shipping, returns, or account topics."
+                    )
+                    record.update(answer=answer, sources=[], grounded=False)
+                    QUESTIONS.append(record)
+                    await _wa_send(sender, answer)
+                    continue
+
+                context = "\n\n".join(f"[{h['title']}] {h['text']}" for h, _ in hits)
+                answer = ""
+                async for delta in _llm_stream(text, context):
+                    answer += delta
+                if not answer:
+                    answer = _extractive_answer(text, hits)
+
+                sources = [{"title": h["title"], "score": round(s, 3)} for h, s in hits]
+                record.update(answer=answer, sources=sources, grounded=True)
+                QUESTIONS.append(record)
+
+                await _wa_send(
+                    sender,
+                    f"{answer}\n\n\U0001F4C4 Sources: " + ", ".join(h["title"] for h, _ in hits),
+                )
+
     return {"ok": True}
 
 
