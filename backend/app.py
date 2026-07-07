@@ -455,7 +455,7 @@ async def _wa_send(to: str, text: str) -> None:
     import httpx
 
     async with httpx.AsyncClient(timeout=15) as client:
-        await client.post(
+        resp = await client.post(
             f"{WA_GRAPH_URL}/{WA_PHONE_ID}/messages",
             headers={"Authorization": f"Bearer {WA_TOKEN}"},
             json={
@@ -465,6 +465,11 @@ async def _wa_send(to: str, text: str) -> None:
                 "text": {"body": text[:4000]},
             },
         )
+    # Surface Graph API failures (expired token, recipient not allow-listed,
+    # 24h-window closed) instead of dropping them — a silent send is the worst
+    # failure mode for a support bot. Logged to stdout (captured by the host).
+    if resp.status_code >= 400:
+        print(f"[wa] send failed {resp.status_code}: {resp.text[:300]}", flush=True)
 
 
 def _wa_signature_ok(raw: bytes, header: str) -> bool:
