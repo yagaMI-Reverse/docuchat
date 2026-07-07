@@ -451,6 +451,12 @@ WA_HELP_TEXT = (
 )
 
 
+# Last WhatsApp send outcome — exposed via /whatsapp/debug so delivery
+# failures (expired token, recipient not allow-listed, closed 24h window) can
+# be inspected without shell access to the host. Diagnostic aid; harmless.
+_WA_LAST: dict = {}
+
+
 async def _wa_send(to: str, text: str) -> None:
     import httpx
 
@@ -465,11 +471,22 @@ async def _wa_send(to: str, text: str) -> None:
                 "text": {"body": text[:4000]},
             },
         )
-    # Surface Graph API failures (expired token, recipient not allow-listed,
-    # 24h-window closed) instead of dropping them — a silent send is the worst
-    # failure mode for a support bot. Logged to stdout (captured by the host).
+    _WA_LAST.clear()
+    _WA_LAST.update(to=to, status=resp.status_code, body=resp.text[:400], ts=time.time())
+    # Surface Graph API failures instead of dropping them — a silent send is the
+    # worst failure mode for a support bot.
     if resp.status_code >= 400:
-        print(f"[wa] send failed {resp.status_code}: {resp.text[:300]}", flush=True)
+        print(f"[wa] send failed {resp.status_code} to {to}: {resp.text[:300]}", flush=True)
+
+
+@app.get("/whatsapp/debug")
+def whatsapp_debug():
+    """Last outbound send result + config presence (no secrets leaked)."""
+    return {
+        "token_set": bool(WA_TOKEN),
+        "phone_id": WA_PHONE_ID,
+        "last_send": _WA_LAST or None,
+    }
 
 
 def _wa_signature_ok(raw: bytes, header: str) -> bool:
