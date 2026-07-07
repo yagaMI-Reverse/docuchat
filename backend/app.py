@@ -457,25 +457,49 @@ WA_HELP_TEXT = (
 _WA_LAST: dict = {}
 
 
+def _recipient_variants(to: str) -> list[str]:
+    """Candidate recipient forms to try, most-canonical first.
+
+    Test numbers only deliver to an allow-list, and the same handset can be
+    listed under a different national formatting than the E.164 `from` a
+    webhook reports. The clearest case is Kazakhstan/Russia (+7): the domestic
+    trunk prefix '8' is sometimes stored after the country code, so an inbound
+    `from` of 77XXXXXXXXX must be retried as 787XXXXXXXXX. Production business
+    numbers have no allow-list, so this fallback simply never triggers there.
+    """
+    variants = [to]
+    if to.startswith("77") and len(to) == 11:
+        variants.append("78" + to[1:])  # 77753206799 -> 787753206799
+    return variants
+
+
 async def _wa_send(to: str, text: str) -> None:
     import httpx
 
     async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(
-            f"{WA_GRAPH_URL}/{WA_PHONE_ID}/messages",
-            headers={"Authorization": f"Bearer {WA_TOKEN}"},
-            json={
-                "messaging_product": "whatsapp",
-                "to": to,
-                "type": "text",
-                "text": {"body": text[:4000]},
-            },
-        )
-    _WA_LAST.clear()
-    _WA_LAST.update(to=to, status=resp.status_code, body=resp.text[:400], ts=time.time())
-    # Surface Graph API failures instead of dropping them — a silent send is the
-    # worst failure mode for a support bot.
-    if resp.status_code >= 400:
+        resp = None
+        for cand in _recipient_variants(to):
+            resp = await client.post(
+                f"{WA_GRAPH_URL}/{WA_PHONE_ID}/messages",
+                headers={"Authorization": f"Bearer {WA_TOKEN}"},
+                json={
+                    "messaging_product": "whatsapp",
+                    "to": cand,
+                    "type": "text",
+                    "text": {"body": text[:4000]},
+                },
+            )
+            _WA_LAST.clear()
+            _WA_LAST.update(to=cand, status=resp.status_code, body=resp.text[:400], ts=time.time())
+            if resp.status_code < 400:
+                return
+            # Only fall through to an alternate number form on the allow-list
+            # error; any other failure (bad token, closed window) won't be
+            # fixed by reformatting, so stop and surface it.
+            if "131030" not in resp.text:
+                break
+
+    if resp is not None and resp.status_code >= 400:
         print(f"[wa] send failed {resp.status_code} to {to}: {resp.text[:300]}", flush=True)
 
 
