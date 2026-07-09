@@ -58,6 +58,25 @@ npm install
 npm run dev        # http://localhost:5173/docuchat/  (talks to http://127.0.0.1:8000)
 ```
 
+## 🐳 Run with Docker (one command)
+
+Bring up the whole backend stack — the FastAPI API **plus** a Postgres 16 / **pgvector**
+database — with a single command:
+
+```bash
+docker compose up --build
+# API on http://localhost:8000  ·  Postgres+pgvector on localhost:5432
+curl http://localhost:8000/health           # { "ok": true, ... }
+```
+
+- **`backend/Dockerfile`** — Python 3.12-slim image, deps from prebuilt wheels (no compiler), same `uvicorn` start command as the Render deploy.
+- **`docker-compose.yml`** — `api` + `db` services; the API waits on a Postgres healthcheck before starting.
+- **`db/init/01-schema.sql`** — runs on first boot: enables the `vector` extension and creates the same `docuchat_chunks` table + `match_docuchat_chunks` cosine-match function (384-dim, HNSW index) DocuChat uses in production via Supabase.
+
+The API runs in **zero-config extractive mode** out of the box (no API keys). Uncomment
+`OPENAI_API_KEY` in `docker-compose.yml` for real LLM answers, or the `SUPABASE_*` vars to
+use the hosted vector store instead of the local one.
+
 ## 🤖 LangGraph agent (multi-step RAG)
 
 `backend/agent.py` wraps the production retriever in an explicit **LangGraph** state graph — `plan → retrieve → assess ⇄ (rewrite loop, max 3 hops) → answer` — so thin retrievals trigger query rewrites instead of hallucinations, and answers always carry source citations. Generation uses Gemini when `GEMINI_API_KEY` is set and falls back to extractive answering keylessly.

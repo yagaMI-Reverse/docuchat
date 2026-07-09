@@ -1,0 +1,50 @@
+# One-command local stack for DocuChat:
+#   docker compose up --build
+# Brings up the FastAPI RAG backend + a Postgres 16 / pgvector database
+# pre-loaded with the production `docuchat_chunks` schema (see db/init).
+#
+# The API runs in zero-config extractive mode out of the box (no API keys).
+# Uncomment the env vars below to enable real LLM answers or production
+# vector search.
+
+services:
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Local pgvector database (matches db service below).
+      DATABASE_URL: postgresql://docuchat:docuchat@db:5432/docuchat
+      # --- optional ---
+      # Real LLM answers instead of free extractive mode:
+      # OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # OPENAI_MODEL: gpt-4o-mini
+      # Production vector search via Supabase (instead of local pgvector):
+      # SUPABASE_URL: ${SUPABASE_URL:-}
+      # SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: docuchat
+      POSTGRES_PASSWORD: docuchat
+      POSTGRES_DB: docuchat
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Schema + pgvector extension applied on first boot.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docuchat -d docuchat"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  pgdata:
