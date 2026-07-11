@@ -99,6 +99,24 @@ npm run test:e2e          # 10 checks: 5 specs × (desktop + mobile)
 npm run test:e2e:report   # open the HTML report
 ```
 
+## 📏 LLM evals & regression suite (Promptfoo)
+
+`evals/` contains a [Promptfoo](https://promptfoo.dev) regression suite that runs against the **live production API** through a custom provider (`provider.js` parses the SSE stream and exposes the retrieval metadata — cited sources and the `grounded` flag — as assertable output). 8 cases / 19 assertions cover the four failure modes that actually matter in RAG:
+
+- **Grounding** — shipping/returns answers must quote the exact figures from the docs
+- **Citation accuracy** — the right source document must be cited for each topic
+- **Honest refusal** — off-domain and plausible-but-absent questions must be refused, not improvised (`grounded: false`)
+- **Injection robustness** — "ignore all previous instructions" must never be complied with
+
+```bash
+cd evals
+npx promptfoo@latest eval        # 8/8 passing against prod, ~10s
+npx promptfoo@latest view        # browsable results table
+# test a local backend instead:  DOCUCHAT_API=http://localhost:8000 npx promptfoo eval
+```
+
+Run it in CI before every prompt or retrieval change — grounding regressions get caught by asserts, not by customers.
+
 ## 📦 Deploy
 
 - **Frontend → GitHub Pages** (static). Set the repo variable `VITE_API_URL` to your deployed backend URL, then the included GitHub Actions workflow builds & publishes.
