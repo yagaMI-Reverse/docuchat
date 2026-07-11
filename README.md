@@ -117,6 +117,8 @@ npx promptfoo@latest view        # browsable results table
 
 Run it in CI before every prompt or retrieval change — grounding regressions get caught by asserts, not by customers.
 
+**Observability:** when `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` are set, every `/chat` request is traced to [Langfuse](https://langfuse.com) — a `rag-chat` root span with a `retrieve` child (hit count + cited sources with scores) and an `answer` generation tagged with the model path (`gpt-4o-mini` or `extractive-tfidf`) and the grounded/refusal outcome. Tracing is fully optional: without keys the app runs exactly as before.
+
 ## 📦 Deploy
 
 - **Frontend → GitHub Pages** (static). Set the repo variable `VITE_API_URL` to your deployed backend URL, then the included GitHub Actions workflow builds & publishes.
