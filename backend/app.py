@@ -218,6 +218,27 @@ async def _llm_stream(query: str, context: str):
 
 
 # --------------------------------------------------------------------------- #
+# Langfuse observability (optional)
+# When LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY are set, every /chat request is
+# traced: a retrieval span (cited sources + scores) and an answer generation,
+# tagged with the grounded/refusal outcome. Without keys this is a no-op, so the
+# demo keeps running with zero configuration.
+# --------------------------------------------------------------------------- #
+LANGFUSE = None
+if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
+    try:
+        from langfuse import Langfuse
+
+        LANGFUSE = Langfuse(
+            public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+            secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+            host=os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com"),
+        )
+    except Exception:
+        LANGFUSE = None
+
+
+# --------------------------------------------------------------------------- #
 # API models
 # --------------------------------------------------------------------------- #
 class ChatIn(BaseModel):
@@ -316,6 +337,40 @@ async def chat(inp: ChatIn):
     hits = _retrieve(query)
     sources = [{"title": h["title"], "score": round(s, 3)} for h, s in hits]
 
+    lf_root = None
+    if LANGFUSE:
+        try:
+            lf_root = LANGFUSE.start_observation(
+                name="rag-chat", as_type="span", input={"query": query}
+            )
+            lf_retrieve = lf_root.start_observation(
+                name="retrieve",
+                as_type="span",
+                input={"query": query, "engine": "pgvector" if _vector_ready else "tfidf"},
+            )
+            lf_retrieve.update(output={"hits": len(hits), "sources": sources})
+            lf_retrieve.end()
+        except Exception:
+            lf_root = None
+
+    def _lf_finish(answer: str, grounded: bool, model: str | None = None):
+        if not lf_root:
+            return
+        try:
+            if model:
+                lf_gen = lf_root.start_observation(
+                    name="answer", as_type="generation", model=model, input={"query": query}
+                )
+                lf_gen.update(output=answer)
+                lf_gen.end()
+            lf_root.update(
+                output={"answer": answer, "grounded": grounded, "sources": sources}
+            )
+            lf_root.end()
+            LANGFUSE.flush()
+        except Exception:
+            pass
+
     async def gen():
         record = {"id": str(uuid.uuid4())[:8], "q": query, "ts": time.time()}
         if not hits:
@@ -325,6 +380,7 @@ async def chat(inp: ChatIn):
                 await asyncio.sleep(0.02)
             record.update(answer=msg, sources=[], grounded=False)
             QUESTIONS.append(record)
+            _lf_finish(msg, grounded=False, model="refusal-no-retrieval-hit")
             yield f"data: {json.dumps({'done': True, 'sources': [], 'grounded': False})}\n\n"
             return
 
@@ -346,6 +402,11 @@ async def chat(inp: ChatIn):
 
         record.update(answer=collected.strip(), sources=sources, grounded=True)
         QUESTIONS.append(record)
+        _lf_finish(
+            collected.strip(),
+            grounded=True,
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini") if used_llm else "extractive-tfidf",
+        )
         yield f"data: {json.dumps({'done': True, 'sources': sources, 'grounded': True})}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
