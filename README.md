@@ -92,6 +92,8 @@ python agent.py "Can I return an item after 20 days?"
 
 The suite in `frontend/e2e/` runs against the **deployed app** (override with `E2E_BASE_URL`) on desktop + mobile emulation, and covers the money paths: streamed grounded answers with source citations, suggestion chips, honest refusal on out-of-KB questions, and the admin panel's knowledge base + quality stats. Global setup pre-warms the Render backend so cold starts never eat the test budget.
 
+**CI gate:** the suite also runs in GitHub Actions (`.github/workflows/e2e.yml`) on every push and PR against the live deployment — a red suite is a red check, and the Playwright report is uploaded as an artifact on failure. See [`frontend/TESTING.md`](frontend/TESTING.md) for the testing contract.
+
 ```bash
 cd frontend
 npx playwright install chromium

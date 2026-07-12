@@ -29,6 +29,13 @@ npx playwright install chromium
 npm run test:e2e          # all specs × (desktop + Pixel 7)
 ```
 
+## CI gate
+
+The same suite runs in GitHub Actions ([`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml))
+on every push and pull request, against the live deployment — a red suite is a
+red check. The Playwright HTML report is uploaded as an artifact on failure, so
+a broken run can be debugged straight from the Actions page.
+
 ## Case study 1 — AI writes a spec from a plain-English flow description
 
 > **Flow: honest refusal.** When a visitor asks something outside the knowledge
